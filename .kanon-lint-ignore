@@ -1,0 +1,11 @@
+# Format: RULE/name:path/glob
+
+# kanon init scaffolds CI workflows with a split design (rust.yml runs MSRV/feature
+# isolation, ci.yml runs shellcheck, others run security/releases). The quality gates
+# (fmt, clippy, test) are enforced by `kanon gate` pre-push, not in GitHub Actions.
+# These lint rules expect a monolithic CI file that runs everything; our split
+# design deliberately does not. Revisit when kanon lint rules catch up to kanon init.
+CI/no-clippy-check:.github/workflows/**
+CI/no-deny-check:.github/workflows/**
+CI/no-format-check:.github/workflows/**
+CI/no-test-step:.github/workflows/**

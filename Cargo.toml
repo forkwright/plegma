@@ -1,0 +1,83 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/dictyon",
+    "crates/plegma-core",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/forkwright/plegma"
+rust-version = "1.85"
+
+[workspace.lints.rust]
+future_incompatible = { level = "warn", priority = -1 }
+nonstandard_style = { level = "warn", priority = -1 }
+rust_2018_idioms = { level = "warn", priority = -1 }
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+
+# Deny-level
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+exit = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+
+# Correctness
+await_holding_lock = "deny"
+
+# Architectural boundary enforcement
+disallowed_methods = "deny"
+disallowed_types = "deny"
+
+[workspace.dependencies]
+# Error handling
+snafu = "0.8"
+
+# Serialization
+serde = { version = "1", default-features = false, features = [
+    "derive",
+    "std",
+] }
+serde_json = { version = "1", default-features = false, features = ["std"] }
+
+# Async runtime
+tokio = { version = "1", default-features = false, features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "time",
+    "sync",
+    "io-util",
+] }
+
+# Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Crypto primitives (placeholder — actual WireGuard uses boringtun)
+# boringtun = "0.6"  # uncomment when dictyon data plane begins
+
+# Testing
+proptest = "1"
+
+# Local workspace crates
+plegma-core = { path = "crates/plegma-core", version = "0.1.0" }
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
