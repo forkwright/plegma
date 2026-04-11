@@ -68,6 +68,13 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Crypto primitives (placeholder — actual WireGuard uses boringtun)
 # boringtun = "0.6"  # uncomment when dictyon data plane begins
 
+# Noise protocol
+snow = "0.10"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+zeroize = { version = "1", features = ["derive"] }
+rand = "0.8"
+base64 = "0.22"
+
 # Testing
 proptest = "1"
 

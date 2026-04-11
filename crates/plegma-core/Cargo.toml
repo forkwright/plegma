@@ -13,6 +13,9 @@ workspace = true
 [dependencies]
 snafu = { workspace = true }
 serde = { workspace = true }
+x25519-dalek = { workspace = true }
+zeroize = { workspace = true }
+rand = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

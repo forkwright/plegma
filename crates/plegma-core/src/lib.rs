@@ -10,20 +10,4 @@
 
 #![deny(missing_docs)]
 
-/// Placeholder sentinel indicating the crate is reachable from the workspace.
-///
-/// Removed when the first real type module lands.
-#[must_use]
-pub const fn scaffold_sentinel() -> &'static str {
-    "plegma-core"
-}
-
-#[cfg(test)]
-mod tests {
-    use super::scaffold_sentinel;
-
-    #[test]
-    fn sentinel_returns_crate_name() {
-        assert_eq!(scaffold_sentinel(), "plegma-core");
-    }
-}
+pub mod keys;

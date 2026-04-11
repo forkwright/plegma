@@ -10,8 +10,8 @@
 //!
 //! ## Status
 //!
-//! Pre-alpha scaffold. Nothing here works yet. See the project roadmap in
-//! kanon/projects/plegma for the phase plan.
+//! Noise IK handshake and key types implemented. HTTP transport skeleton
+//! in place. No actual TCP I/O yet.
 //!
 //! ## Scope
 //!
@@ -27,20 +27,5 @@
 
 #![deny(missing_docs)]
 
-/// Placeholder sentinel indicating the crate is reachable from the workspace.
-///
-/// Removed when the first real module lands.
-#[must_use]
-pub const fn scaffold_sentinel() -> &'static str {
-    "dictyon"
-}
-
-#[cfg(test)]
-mod tests {
-    use super::scaffold_sentinel;
-
-    #[test]
-    fn sentinel_returns_crate_name() {
-        assert_eq!(scaffold_sentinel(), "dictyon");
-    }
-}
+pub mod noise;
+pub mod transport;
