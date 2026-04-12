@@ -11,3 +11,4 @@
 #![deny(missing_docs)]
 
 pub mod keys;
+pub mod types;

@@ -27,5 +27,6 @@
 
 #![deny(missing_docs)]
 
+pub mod control;
 pub mod noise;
 pub mod transport;

@@ -20,6 +20,7 @@ tracing = { workspace = true }
 snow = { workspace = true }
 zeroize = { workspace = true }
 base64 = { workspace = true }
+hostname = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

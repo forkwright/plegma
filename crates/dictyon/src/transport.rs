@@ -72,6 +72,15 @@ pub struct UpgradeRequest {
 }
 
 impl ControlConnection {
+    /// Create a `ControlConnection` directly from a [`NoiseTransport`].
+    ///
+    /// The caller is responsible for ensuring the transport has completed
+    /// the Noise handshake. This is the constructor used after manually
+    /// completing the handshake outside the HTTP upgrade flow.
+    pub fn from_transport(noise: NoiseTransport) -> Self {
+        Self { noise }
+    }
+
     /// Build the HTTP upgrade request for `/ts2021`.
     ///
     /// Generates the Noise initiation message, base64-encodes it, and
