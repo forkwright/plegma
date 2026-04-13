@@ -10,8 +10,42 @@
 use core::fmt;
 
 use rand::rngs::OsRng;
+use snafu::Snafu;
 use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::{Zeroize, ZeroizeOnDrop};
+
+// ---------------------------------------------------------------------------
+// Error type
+// ---------------------------------------------------------------------------
+
+/// Errors that can occur when parsing or handling keys.
+#[derive(Debug, Snafu)]
+pub enum KeyError {
+    /// The key string is missing the expected prefix.
+    #[snafu(display("key missing prefix '{prefix}': got '{input}'"))]
+    MissingPrefix {
+        /// The expected prefix.
+        prefix: String,
+        /// The full input string.
+        input: String,
+    },
+
+    /// The hex portion of the key is not valid.
+    #[snafu(display("invalid hex in key: {message}"))]
+    InvalidHex {
+        /// Description of the hex error.
+        message: String,
+    },
+
+    /// The decoded key is not the expected length.
+    #[snafu(display("key length wrong: expected {expected}, got {actual}"))]
+    WrongLength {
+        /// Expected byte count.
+        expected: usize,
+        /// Actual byte count.
+        actual: usize,
+    },
+}
 
 /// Length of all Curve25519 keys in bytes.
 const KEY_LEN: usize = 32;
@@ -153,6 +187,41 @@ key_pair! {
 }
 
 // ---------------------------------------------------------------------------
+// MachinePublic: additional parsing support
+// ---------------------------------------------------------------------------
+
+impl MachinePublic {
+    /// Parse a `MachinePublic` from the Tailscale `"mkey:hexhex..."` format.
+    ///
+    /// This is used to deserialize the server's public key returned by
+    /// `GET /key?v=N`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KeyError`] if the prefix is missing, the hex is invalid, or
+    /// the decoded length is not 32 bytes.
+    pub fn from_hex(s: &str) -> Result<Self, KeyError> {
+        let prefix = "mkey:";
+        let hex = s
+            .strip_prefix(prefix)
+            .ok_or_else(|| KeyError::MissingPrefix {
+                prefix: prefix.to_string(),
+                input: s.to_string(),
+            })?;
+        let bytes = hex_decode(hex)?;
+        if bytes.len() != KEY_LEN {
+            return Err(KeyError::WrongLength {
+                expected: KEY_LEN,
+                actual: bytes.len(),
+            });
+        }
+        let mut arr = [0u8; KEY_LEN];
+        arr.copy_from_slice(&bytes);
+        Ok(Self(arr))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Hex encoding helper (avoids pulling in the `hex` crate for one function)
 // ---------------------------------------------------------------------------
 
@@ -163,6 +232,31 @@ fn hex_encode(bytes: &[u8]) -> String {
         let _ = write!(s, "{b:02x}");
     }
     s
+}
+
+fn hex_decode(s: &str) -> Result<Vec<u8>, KeyError> {
+    if s.len() % 2 != 0 {
+        return Err(KeyError::InvalidHex {
+            message: "odd number of hex digits".to_string(),
+        });
+    }
+    let mut bytes = Vec::with_capacity(s.len() / 2);
+    for chunk in s.as_bytes().chunks(2) {
+        // Safety: chunks(2) on a valid UTF-8 str with even length gives ASCII pairs.
+        let hi = hex_nibble(chunk[0]).map_err(|e| KeyError::InvalidHex { message: e })?;
+        let lo = hex_nibble(chunk[1]).map_err(|e| KeyError::InvalidHex { message: e })?;
+        bytes.push((hi << 4) | lo);
+    }
+    Ok(bytes)
+}
+
+fn hex_nibble(b: u8) -> Result<u8, String> {
+    match b {
+        b'0'..=b'9' => Ok(b - b'0'),
+        b'a'..=b'f' => Ok(b - b'a' + 10),
+        b'A'..=b'F' => Ok(b - b'A' + 10),
+        _ => Err(format!("invalid hex digit: {}", b as char)),
+    }
 }
 
 // ---------------------------------------------------------------------------

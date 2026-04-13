@@ -10,8 +10,9 @@
 //!
 //! ## Status
 //!
-//! Noise IK handshake and key types implemented. HTTP transport skeleton
-//! in place. No actual TCP I/O yet.
+//! Noise IK handshake and key types implemented. TCP/TLS connection,
+//! HTTP upgrade, Noise handshake completion, registration, and map
+//! streaming implemented in [`wire`] and the async extension of [`control`].
 //!
 //! ## Scope
 //!
@@ -28,5 +29,7 @@
 #![deny(missing_docs)]
 
 pub mod control;
+pub mod error;
 pub mod noise;
 pub mod transport;
+pub mod wire;

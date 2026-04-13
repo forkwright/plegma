@@ -25,6 +25,7 @@ use plegma_core::types::{
 use snafu::Snafu;
 
 use crate::transport::ControlConnection;
+use crate::wire::AsyncControlStream;
 
 /// Errors from control protocol operations.
 #[derive(Debug, Snafu)]
@@ -49,6 +50,13 @@ pub enum ControlError {
         /// Description of the framing error.
         message: String,
     },
+
+    /// A wire (TCP/TLS) I/O error.
+    #[snafu(display("wire error: {source}"))]
+    Wire {
+        /// The underlying wire error.
+        source: crate::wire::WireError,
+    },
 }
 
 impl From<crate::transport::TransportError> for ControlError {
@@ -63,6 +71,27 @@ impl From<serde_json::Error> for ControlError {
             message: err.to_string(),
         }
     }
+}
+
+impl From<crate::wire::WireError> for ControlError {
+    fn from(source: crate::wire::WireError) -> Self {
+        Self::Wire { source }
+    }
+}
+
+/// Outcome of an async registration attempt.
+///
+/// When the machine already has a valid pre-auth key, the server
+/// authorizes it immediately ([`RegisterOutcome::Authorized`]). Otherwise,
+/// the user must visit an auth URL ([`RegisterOutcome::NeedsAuth`]).
+pub enum RegisterOutcome {
+    /// The node was authorized; contains the server's registration response.
+    Authorized(RegisterResponse),
+    /// Interactive auth is required; the user must visit this URL.
+    NeedsAuth {
+        /// URL the user must visit to authorize this node.
+        auth_url: String,
+    },
 }
 
 /// The local view of the network map, maintained by applying
@@ -96,6 +125,7 @@ pub struct Netmap {
 /// client.apply_map_response(map_resp);
 /// ```
 pub struct ControlClient {
+    #[allow(dead_code)]
     transport: ControlConnection,
     #[allow(dead_code)]
     machine_key: MachinePrivate,
@@ -153,25 +183,98 @@ impl ControlClient {
         Ok(json)
     }
 
-    /// Register this node with the control server.
+    /// Register this node asynchronously using an [`AsyncControlStream`].
     ///
-    /// Builds a [`RegisterRequest`], encrypts and frames it via the
-    /// transport, then parses the response as [`RegisterResponse`].
-    ///
-    /// # Arguments
-    ///
-    /// * `auth_key` - Optional pre-auth key for headless registration.
+    /// Serializes a [`RegisterRequest`], sends it over the stream, and parses
+    /// the response. Returns either an authorized [`RegisterResponse`] or the
+    /// auth URL the user must visit.
     ///
     /// # Errors
     ///
-    /// Returns [`ControlError`] on serialization, transport, or
-    /// deserialization failure.
-    pub fn register(&mut self, auth_key: Option<&str>) -> Result<RegisterResponse, ControlError> {
+    /// Returns [`ControlError`] on serialization, I/O, or parse failure.
+    pub async fn register(
+        &mut self,
+        stream: &mut AsyncControlStream,
+        auth_key: Option<&str>,
+    ) -> Result<RegisterOutcome, ControlError> {
         let payload = self.build_register_request(auth_key)?;
-        let encrypted = self.transport.send(&payload)?;
-        let decrypted = self.transport.receive(&encrypted)?;
-        let resp: RegisterResponse = serde_json::from_slice(&decrypted)?;
-        Ok(resp)
+        let framed = frame_message(&payload);
+        stream.send_message(&framed).await?;
+
+        let raw = stream.recv_message().await?;
+        let resp = parse_register_response(&raw)?;
+
+        if let Some(url) = resp.auth_url.clone() {
+            Ok(RegisterOutcome::NeedsAuth { auth_url: url })
+        } else {
+            Ok(RegisterOutcome::Authorized(resp))
+        }
+    }
+
+    /// Poll for registration completion after the user has visited the auth URL.
+    ///
+    /// Sends a new [`RegisterRequest`] with the `followup` field set to the
+    /// URL returned in the initial response, and waits for authorization.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ControlError`] on serialization, I/O, or parse failure.
+    pub async fn poll_registration(
+        &mut self,
+        stream: &mut AsyncControlStream,
+        followup_url: &str,
+    ) -> Result<RegisterResponse, ControlError> {
+        let req = RegisterRequest {
+            node_key: self.node_key.public_key().to_hex(),
+            old_node_key: String::new(),
+            auth: None,
+            hostinfo: self.hostinfo(),
+            followup: Some(followup_url.to_string()),
+        };
+        let payload = serde_json::to_vec(&req)?;
+        let framed = frame_message(&payload);
+        stream.send_message(&framed).await?;
+
+        let raw = stream.recv_message().await?;
+        parse_register_response(&raw)
+    }
+
+    /// Send the initial map request and start streaming map updates.
+    ///
+    /// Serializes a streaming [`MapRequest`] and sends it. Call
+    /// [`recv_map_update`](Self::recv_map_update) in a loop to receive
+    /// responses.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ControlError`] on serialization or I/O failure.
+    pub async fn start_map_stream(
+        &mut self,
+        stream: &mut AsyncControlStream,
+    ) -> Result<(), ControlError> {
+        let payload = self.build_map_request()?;
+        let framed = frame_message(&payload);
+        stream.send_message(&framed).await?;
+        Ok(())
+    }
+
+    /// Receive one map update frame from the server and apply it.
+    ///
+    /// Returns `true` if the update was a keep-alive (no netmap change),
+    /// `false` if the netmap was modified.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ControlError`] on I/O or parse failure.
+    pub async fn recv_map_update(
+        &mut self,
+        stream: &mut AsyncControlStream,
+    ) -> Result<bool, ControlError> {
+        let raw = stream.recv_message().await?;
+        let resp = Self::parse_map_response(&raw)?;
+        let is_keepalive = resp.keep_alive == Some(true);
+        self.apply_map_response(resp);
+        Ok(is_keepalive)
     }
 
     /// Build a [`MapRequest`] and serialize it to JSON.
@@ -189,6 +292,7 @@ impl ControlClient {
             disco_key: self.disco_key.public_key().to_hex(),
             endpoints: Vec::new(),
             stream: true,
+            omit_peers: false,
             hostinfo: self.hostinfo(),
         };
 
@@ -345,6 +449,22 @@ fn gethostname() -> String {
         .ok()
         .and_then(|h| h.into_string().ok())
         .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Frame a JSON payload as `[4B LE size][payload]` for the control wire format.
+fn frame_message(payload: &[u8]) -> Vec<u8> {
+    let size = u32::try_from(payload.len()).unwrap_or(u32::MAX);
+    let mut framed = Vec::with_capacity(4 + payload.len());
+    framed.extend_from_slice(&size.to_le_bytes());
+    framed.extend_from_slice(payload);
+    framed
+}
+
+/// Deserialize a [`RegisterResponse`] from raw (decrypted) bytes.
+fn parse_register_response(raw: &[u8]) -> Result<RegisterResponse, ControlError> {
+    serde_json::from_slice(raw).map_err(|e| ControlError::Json {
+        message: e.to_string(),
+    })
 }
 
 // ---------------------------------------------------------------------------

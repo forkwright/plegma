@@ -125,6 +125,11 @@ pub struct MapRequest {
     #[serde(rename = "Stream")]
     pub stream: bool,
 
+    /// Whether to omit peers from the response (used for initial registration
+    /// polling before the node is fully authorized).
+    #[serde(rename = "OmitPeers")]
+    pub omit_peers: bool,
+
     /// Host information.
     #[serde(rename = "Hostinfo")]
     pub hostinfo: Hostinfo,

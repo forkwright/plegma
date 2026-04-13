@@ -44,6 +44,11 @@ disallowed_types = "deny"
 # Error handling
 snafu = "0.8"
 
+# TLS
+rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false }
+webpki-roots = "1"
+
 # Serialization
 serde = { version = "1", default-features = false, features = [
     "derive",
