@@ -778,4 +778,114 @@ mod tests {
         assert_eq!(client.peers().len(), 1);
         assert_eq!(client.peers()[0].key, "nodekey:peer1");
     }
+
+    // -----------------------------------------------------------------------
+    // Property tests
+    // -----------------------------------------------------------------------
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(256))]
+
+        /// After any sequence of delta updates the peer list has no duplicate
+        /// keys and every explicitly removed key is absent.
+        #[test]
+        fn netmap_delta_sequence_is_consistent(
+            // Number of initial peers: 1..=8
+            n_initial in 1usize..=8,
+            // Number of additional peers to add via peers_changed: 0..=4
+            n_add in 0usize..=4,
+            // Number of peers to remove (capped at n_initial): 0..=4
+            n_remove in 0usize..=4,
+        ) {
+            let mut client = test_client();
+
+            // Build the initial full map response.
+            let initial_peers: Vec<Node> = (0..n_initial)
+                .map(|i| {
+                    let id = i64::try_from(i).expect("test index fits i64") + 2;
+                    sample_node(id, &format!("nodekey:peer{i}"), &format!("peer{i}.ts.net."))
+                })
+                .collect();
+
+            let initial = MapResponse {
+                node: Some(sample_node(1, "nodekey:self", "self.ts.net.")),
+                peers: Some(initial_peers),
+                peers_changed: None,
+                peers_removed: None,
+                dns_config: None,
+                derp_map: None,
+                keep_alive: None,
+            };
+            client.apply_map_response(initial);
+            assert_eq!(client.peers().len(), n_initial);
+
+            // Add new peers via peers_changed.
+            if n_add > 0 {
+                let new_peers: Vec<Node> = (0..n_add)
+                    .map(|i| {
+                        let idx = n_initial + i;
+                        let id = i64::try_from(idx).expect("test index fits i64") + 2;
+                        sample_node(
+                            id,
+                            &format!("nodekey:newpeer{idx}"),
+                            &format!("newpeer{idx}.ts.net."),
+                        )
+                    })
+                    .collect();
+                let delta = MapResponse {
+                    node: None,
+                    peers: None,
+                    peers_changed: Some(new_peers),
+                    peers_removed: None,
+                    dns_config: None,
+                    derp_map: None,
+                    keep_alive: None,
+                };
+                client.apply_map_response(delta);
+                assert_eq!(client.peers().len(), n_initial + n_add);
+            }
+
+            // Remove up to n_remove of the original peers.
+            let n_to_remove = n_remove.min(n_initial);
+            let removed_keys: Vec<String> = (0..n_to_remove)
+                .map(|i| format!("nodekey:peer{i}"))
+                .collect();
+
+            if n_to_remove > 0 {
+                let delta = MapResponse {
+                    node: None,
+                    peers: None,
+                    peers_changed: None,
+                    peers_removed: Some(removed_keys.clone()),
+                    dns_config: None,
+                    derp_map: None,
+                    keep_alive: None,
+                };
+                client.apply_map_response(delta);
+            }
+
+            let final_peers = client.peers();
+            let expected_count = n_initial + n_add - n_to_remove;
+            assert_eq!(
+                final_peers.len(),
+                expected_count,
+                "peer count after add={n_add} remove={n_to_remove} should be {expected_count}"
+            );
+
+            // Invariant: no duplicate keys.
+            let mut seen_keys = std::collections::HashSet::new();
+            for peer in final_peers {
+                let is_new = seen_keys.insert(peer.key.clone());
+                assert!(is_new, "duplicate peer key found: {}", peer.key);
+            }
+
+            // Invariant: all removed keys are absent.
+            for removed_key in &removed_keys {
+                assert!(
+                    !seen_keys.contains(removed_key),
+                    "removed key should not be present: {removed_key}"
+                );
+            }
+        }
+    }
 }

@@ -267,6 +267,61 @@ pub async fn connect(config: &ControlConfig) -> Result<AsyncControlStream, WireE
     connect_with_key(config, server_key).await
 }
 
+/// Connect with a custom [`ClientConfig`], bypassing the default webpki roots.
+///
+/// This is the same as [`connect`] but accepts a caller-supplied TLS
+/// configuration. Intended for testing (custom CA) and environments where the
+/// caller manages certificate trust.
+///
+/// # Errors
+///
+/// Returns [`WireError`] on any I/O, TLS, HTTP, or Noise failure.
+pub async fn connect_with_tls(
+    config: &ControlConfig,
+    tls_config: ClientConfig,
+) -> Result<AsyncControlStream, WireError> {
+    let server_key = fetch_server_key_with_tls(&config.control_url, tls_config.clone()).await?;
+    connect_with_key_and_tls(config, server_key, tls_config).await
+}
+
+/// Fetch the server key using a caller-supplied TLS config.
+///
+/// # Errors
+///
+/// Returns [`WireError`] on TCP/TLS failure, JSON parse failure, or if the
+/// returned key cannot be parsed.
+pub async fn fetch_server_key_with_tls(
+    control_url: &str,
+    tls_config: ClientConfig,
+) -> Result<MachinePublic, WireError> {
+    let (host, port) = parse_host_port(control_url)?;
+    let connector = TlsConnector::from(Arc::new(tls_config));
+
+    let addr = format!("{host}:{port}");
+    let tcp = TcpStream::connect(&addr).await.context(TcpConnectSnafu)?;
+
+    let server_name =
+        rustls::pki_types::ServerName::try_from(host.as_str().to_owned()).map_err(|_| {
+            WireError::InvalidUrl {
+                url: control_url.to_string(),
+            }
+        })?;
+
+    let mut tls_stream = connector
+        .connect(server_name, tcp)
+        .await
+        .context(TlsSnafu)?;
+
+    let request = format!("GET {KEY_PATH} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
+    tls_stream
+        .write_all(request.as_bytes())
+        .await
+        .context(TlsSnafu)?;
+
+    let response = read_full_response(&mut tls_stream).await?;
+    parse_server_key_response(&response)
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -276,8 +331,16 @@ async fn connect_with_key(
     config: &ControlConfig,
     server_key: MachinePublic,
 ) -> Result<AsyncControlStream, WireError> {
+    connect_with_key_and_tls(config, server_key, build_tls_config()).await
+}
+
+/// Inner connect with caller-supplied TLS config and a pre-fetched server key.
+async fn connect_with_key_and_tls(
+    config: &ControlConfig,
+    server_key: MachinePublic,
+    tls_cfg: ClientConfig,
+) -> Result<AsyncControlStream, WireError> {
     let (host, port) = parse_host_port(&config.control_url)?;
-    let tls_cfg = build_tls_config();
     let connector = TlsConnector::from(Arc::new(tls_cfg));
 
     let addr = format!("{host}:{port}");
@@ -308,12 +371,16 @@ async fn connect_with_key(
         .await
         .context(TlsSnafu)?;
 
-    // Read HTTP headers and collect leftover bytes (Noise response body).
-    let (status_line, noise_body) = read_upgrade_response(&mut tls_stream).await?;
+    // Read HTTP headers; the Noise response frame follows in the stream.
+    let (status_line, _) = read_upgrade_response(&mut tls_stream).await?;
 
     if !status_line.contains("101") {
         return Err(WireError::UnexpectedStatus { status_line });
     }
+
+    // Read the Noise response frame from the stream.
+    // Frame format: [1B type=0x02][2B BE payload_len][noise_msg]
+    let noise_body = read_noise_response_frame(&mut tls_stream).await?;
 
     // Complete the Noise handshake.
     let conn = ControlConnection::complete_handshake(handshake, &noise_body).map_err(|e| {
@@ -398,6 +465,27 @@ fn build_upgrade_request(host: &str, init_b64: &str) -> String {
          Content-Length: 0\r\n\
          \r\n"
     )
+}
+
+/// Read the Noise response frame from the stream after the HTTP 101 headers.
+///
+/// The server sends the Noise response frame directly in the stream after
+/// `\r\n\r\n`. Frame format: `[1B type=0x02][2B BE payload_len][noise_msg]`.
+/// Returns the full framed bytes for `NoiseHandshake::process_response`.
+async fn read_noise_response_frame(
+    stream: &mut tokio_rustls::client::TlsStream<TcpStream>,
+) -> Result<Vec<u8>, WireError> {
+    let mut header = [0u8; 3];
+    stream.read_exact(&mut header).await.context(TlsSnafu)?;
+
+    let payload_len = u16::from_be_bytes([header[1], header[2]]) as usize;
+    let mut noise_msg = vec![0u8; payload_len];
+    stream.read_exact(&mut noise_msg).await.context(TlsSnafu)?;
+
+    let mut framed = Vec::with_capacity(3 + payload_len);
+    framed.extend_from_slice(&header);
+    framed.extend_from_slice(&noise_msg);
+    Ok(framed)
 }
 
 /// Read until `\r\n\r\n`, returning (`first_line`, `bytes_after_headers`).

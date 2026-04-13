@@ -358,4 +358,32 @@ mod tests {
         let restored = DiscoPrivate::from_bytes(bytes);
         assert_eq!(priv_key.public_key(), restored.public_key());
     }
+
+    // -----------------------------------------------------------------------
+    // Property tests
+    // -----------------------------------------------------------------------
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(256))]
+
+        /// Any 32-byte value round-trips through `MachinePublic` hex serialization.
+        #[test]
+        fn machine_key_hex_round_trips(bytes in proptest::array::uniform32(0u8..=255)) {
+            let key = MachinePublic::from_bytes(bytes);
+            let hex = key.to_hex();
+            let recovered = MachinePublic::from_hex(&hex)
+                .expect("from_hex should succeed for a key we just serialized");
+            assert_eq!(key, recovered);
+        }
+
+        /// The hex representation always has the expected length and prefix.
+        #[test]
+        fn machine_key_hex_has_correct_format(bytes in proptest::array::uniform32(0u8..=255)) {
+            let key = MachinePublic::from_bytes(bytes);
+            let hex = key.to_hex();
+            assert!(hex.starts_with("mkey:"), "hex should start with mkey: prefix");
+            // "mkey:" (5 chars) + 64 hex chars for 32 bytes
+            assert_eq!(hex.len(), 5 + 64);
+        }
+    }
 }

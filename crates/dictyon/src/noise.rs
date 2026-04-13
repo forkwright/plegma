@@ -314,8 +314,13 @@ impl NoiseTransport {
     ///
     /// This is exposed for testing -- production code should go through
     /// [`NoiseHandshake`].
-    #[cfg(test)]
-    pub(crate) fn from_snow(transport: TransportState) -> Self {
+    ///
+    /// # Note
+    ///
+    /// This function is intended for test helpers that need to construct a
+    /// paired transport state without going through the full handshake flow.
+    #[doc(hidden)]
+    pub fn from_snow(transport: TransportState) -> Self {
         Self { transport }
     }
 }
@@ -705,6 +710,43 @@ mod tests {
             decrypted.is_empty(),
             "decrypted empty payload should be empty"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Property tests
+    // -----------------------------------------------------------------------
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(128))]
+
+        /// Arbitrary byte payloads (0..=4096 bytes) survive an encrypt/decrypt
+        /// round-trip through a freshly paired transport session.
+        #[test]
+        fn transport_payload_round_trips(
+            payload in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..=MAX_FRAME_PAYLOAD)
+        ) {
+            let (mut client, mut server) = paired_transports();
+
+            let frame = client.encrypt(&payload).expect("encrypt should not fail for valid payload");
+
+            assert_eq!(frame[0], MSG_TYPE_TRANSPORT);
+            let ct_len = u16::from_be_bytes([frame[1], frame[2]]) as usize;
+            let ciphertext = &frame[3..3 + ct_len];
+
+            let decrypted = server.decrypt(ciphertext).expect("decrypt should succeed for client-encrypted payload");
+            assert_eq!(decrypted, payload, "decrypted payload must equal original");
+        }
+
+        /// Payloads larger than MAX_FRAME_PAYLOAD must be rejected at encrypt time.
+        #[test]
+        fn transport_oversized_payload_rejected(
+            extra in 1usize..=256usize
+        ) {
+            let (mut client, _server) = paired_transports();
+            let oversized = vec![0xFFu8; MAX_FRAME_PAYLOAD + extra];
+            let result = client.encrypt(&oversized);
+            assert!(result.is_err(), "encrypt must fail for payloads exceeding MAX_FRAME_PAYLOAD");
+        }
     }
 
     // -----------------------------------------------------------------------
