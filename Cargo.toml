@@ -45,7 +45,11 @@ disallowed_types = "deny"
 snafu = "0.8"
 
 # TLS
-rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "tls12"] }
+rustls = {
+    version = "0.23",
+    default-features = false,
+    features = ["logging", "ring", "tls12"],
+}
 tokio-rustls = { version = "0.26", default-features = false }
 webpki-roots = "1"
 
