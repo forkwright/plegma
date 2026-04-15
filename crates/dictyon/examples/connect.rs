@@ -9,29 +9,25 @@
 //! TS_AUTHKEY=tskey-auth-... cargo run --example connect
 //! ```
 
-#![allow(clippy::expect_used)]
-
 use dictyon::control::{ControlClient, RegisterOutcome};
 use dictyon::noise::NoiseHandshake;
 use dictyon::transport::ControlConnection;
 use dictyon::wire::{AsyncControlStream, ControlConfig, connect};
 use hamma_core::keys::{DiscoPrivate, MachinePrivate, NodePrivate};
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 const CONTROL_URL: &str = "https://controlplane.tailscale.com";
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("dictyon=debug".parse().expect("valid directive")),
+                .add_directive("dictyon=debug".parse()?),
         )
         .init();
 
-    if let Err(e) = run().await {
-        error!("fatal: {e}");
-    }
+    run().await
 }
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -56,7 +52,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let client_machine = MachinePrivate::from_bytes(*machine_key.as_bytes());
     let mut client = ControlClient::new(
-        build_dummy_connection(),
+        build_dummy_connection()?,
         client_machine,
         node_key,
         disco_key,
@@ -116,42 +112,35 @@ async fn stream_map(
 /// The async control methods on [`ControlClient`] route I/O through
 /// [`dictyon::wire::AsyncControlStream`] rather than through the embedded
 /// transport, so this connection is a placeholder to satisfy the constructor.
-fn build_dummy_connection() -> ControlConnection {
+fn build_dummy_connection() -> Result<ControlConnection, Box<dyn std::error::Error>> {
     let client_key = MachinePrivate::generate();
     let server_key = MachinePrivate::generate();
     let server_pub = server_key.public_key();
 
     let mut handshake = NoiseHandshake::new(client_key, server_pub);
-    let init_msg = handshake.initiation_message().expect("initiation message");
+    let init_msg = handshake.initiation_message()?;
 
     let params: snow::params::NoiseParams =
-        "Noise_IK_25519_ChaChaPoly_BLAKE2s".parse().expect("params");
+        "Noise_IK_25519_ChaChaPoly_BLAKE2s".parse()?;
     let prologue = b"Tailscale Control Protocol v1";
     let mut responder = snow::Builder::new(params)
-        .local_private_key(server_key.as_bytes())
-        .expect("key")
-        .prologue(prologue)
-        .expect("prologue")
-        .build_responder()
-        .expect("build responder");
+        .local_private_key(server_key.as_bytes())?
+        .prologue(prologue)?
+        .build_responder()?;
 
     let payload_len = u16::from_be_bytes([init_msg[3], init_msg[4]]) as usize;
     let noise_init = &init_msg[5..5 + payload_len];
 
     let mut payload_buf = vec![0u8; 256];
-    responder
-        .read_message(noise_init, &mut payload_buf)
-        .expect("responder read");
+    responder.read_message(noise_init, &mut payload_buf)?;
 
     let mut resp_buf = vec![0u8; 256];
-    let resp_len = responder
-        .write_message(&[], &mut resp_buf)
-        .expect("responder write");
+    let resp_len = responder.write_message(&[], &mut resp_buf)?;
 
-    let len_u16 = u16::try_from(resp_len).expect("resp fits u16");
+    let len_u16 = u16::try_from(resp_len)?;
     let mut framed_resp = vec![0x02u8];
     framed_resp.extend_from_slice(&len_u16.to_be_bytes());
     framed_resp.extend_from_slice(&resp_buf[..resp_len]);
 
-    ControlConnection::complete_handshake(handshake, &framed_resp).expect("complete handshake")
+    Ok(ControlConnection::complete_handshake(handshake, &framed_resp)?)
 }

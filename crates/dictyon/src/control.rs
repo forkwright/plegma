@@ -483,7 +483,7 @@ mod tests {
     ///
     /// The transport is not usable for actual communication -- these
     /// tests exercise the request building and netmap application logic.
-    fn test_client() -> ControlClient {
+    fn dummy_client() -> ControlClient {
         let machine_key = MachinePrivate::generate();
         let node_key = NodePrivate::generate();
         let disco_key = DiscoPrivate::generate();
@@ -563,14 +563,14 @@ mod tests {
 
     #[test]
     fn netmap_starts_empty() {
-        let client = test_client();
+        let client = dummy_client();
         assert!(client.self_node().is_none());
         assert!(client.peers().is_empty());
     }
 
     #[test]
     fn apply_map_response_sets_initial_peers() {
-        let mut client = test_client();
+        let mut client = dummy_client();
 
         let resp = MapResponse {
             node: Some(sample_node(1, "nodekey:self", "self.ts.net.")),
@@ -606,7 +606,7 @@ mod tests {
 
     #[test]
     fn apply_map_response_delta_adds_peers() {
-        let mut client = test_client();
+        let mut client = dummy_client();
 
         // Initial full response.
         let initial = MapResponse {
@@ -649,7 +649,7 @@ mod tests {
 
     #[test]
     fn apply_map_response_removes_peers() {
-        let mut client = test_client();
+        let mut client = dummy_client();
 
         // Initial full response with three peers.
         let initial = MapResponse {
@@ -687,7 +687,7 @@ mod tests {
 
     #[test]
     fn register_builds_correct_json() {
-        let client = test_client();
+        let client = dummy_client();
         let payload = client
             .build_register_request(Some("tskey-auth-test123"))
             .expect("build should succeed");
@@ -748,7 +748,7 @@ mod tests {
 
     #[test]
     fn keepalive_does_not_modify_netmap() {
-        let mut client = test_client();
+        let mut client = dummy_client();
 
         // Initialize with a peer.
         let initial = MapResponse {
@@ -797,7 +797,7 @@ mod tests {
             // Number of peers to remove (capped at n_initial): 0..=4
             n_remove in 0usize..=4,
         ) {
-            let mut client = test_client();
+            let mut client = dummy_client();
 
             // Build the initial full map response.
             let initial_peers: Vec<Node> = (0..n_initial)
