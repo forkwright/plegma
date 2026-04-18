@@ -120,8 +120,7 @@ fn build_dummy_connection() -> Result<ControlConnection, Box<dyn std::error::Err
     let mut handshake = NoiseHandshake::new(client_key, server_pub);
     let init_msg = handshake.initiation_message()?;
 
-    let params: snow::params::NoiseParams =
-        "Noise_IK_25519_ChaChaPoly_BLAKE2s".parse()?;
+    let params: snow::params::NoiseParams = "Noise_IK_25519_ChaChaPoly_BLAKE2s".parse()?;
     let prologue = b"Tailscale Control Protocol v1";
     let mut responder = snow::Builder::new(params)
         .local_private_key(server_key.as_bytes())?
@@ -142,5 +141,8 @@ fn build_dummy_connection() -> Result<ControlConnection, Box<dyn std::error::Err
     framed_resp.extend_from_slice(&len_u16.to_be_bytes());
     framed_resp.extend_from_slice(&resp_buf[..resp_len]);
 
-    Ok(ControlConnection::complete_handshake(handshake, &framed_resp)?)
+    Ok(ControlConnection::complete_handshake(
+        handshake,
+        &framed_resp,
+    )?)
 }
