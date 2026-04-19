@@ -45,30 +45,8 @@ disallowed_types = "deny"
 snafu = "0.8"
 
 # TLS
-rustls = {
-    version = "0.23",
-    default-features = false,
-    features = ["logging", "ring", "tls12"],
-}
 tokio-rustls = { version = "0.26", default-features = false }
 webpki-roots = "1"
-
-# Serialization
-serde = { version = "1", default-features = false, features = [
-    "derive",
-    "std",
-] }
-serde_json = { version = "1", default-features = false, features = ["std"] }
-
-# Async runtime
-tokio = { version = "1", default-features = false, features = [
-    "rt-multi-thread",
-    "macros",
-    "net",
-    "time",
-    "sync",
-    "io-util",
-] }
 
 # Tracing
 tracing = "0.1"
@@ -92,6 +70,36 @@ proptest = "1"
 
 # Local workspace crates
 hamma-core = { path = "crates/hamma-core", version = "0.1.0" }
+
+# Expanded forms (inline table exceeded 80 columns; MSRV 1.85 predates TOML 1.1
+# multi-line inline tables, so use [workspace.dependencies.X] blocks instead).
+
+[workspace.dependencies.rustls]
+version = "0.23"
+default-features = false
+features = ["logging", "ring", "tls12"]
+
+[workspace.dependencies.serde]
+version = "1"
+default-features = false
+features = ["derive", "std"]
+
+[workspace.dependencies.serde_json]
+version = "1"
+default-features = false
+features = ["std"]
+
+[workspace.dependencies.tokio]
+version = "1"
+default-features = false
+features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "time",
+    "sync",
+    "io-util",
+]
 
 [profile.dev.package."*"]
 opt-level = 2
