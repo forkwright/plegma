@@ -9,3 +9,23 @@ CI/no-clippy-check:.github/workflows/**
 CI/no-deny-check:.github/workflows/**
 CI/no-format-check:.github/workflows/**
 CI/no-test-step:.github/workflows/**
+
+# hamma-core exports the key hierarchy (MachinePrivate/Public, NodePrivate/Public,
+# DiscoPrivate/Public, MachinePublic::from_hex) and Tailscale-compatible wire types
+# (RegisterRequest, MapRequest, Node, Hostinfo, DnsConfig, DerpMap, ...) that
+# dictyon (and future `histos`) consume by name. Every `pub` here IS the library
+# contract — pub(crate) would hide it from the other workspace crate. See
+# crates/dictyon/src/*.rs imports of `hamma_core::{keys,types}::*`.
+RUST/pub-visibility:crates/hamma-core/src/keys.rs
+RUST/pub-visibility:crates/hamma-core/src/types.rs
+
+# dictyon's public surface (ControlClient, Netmap, RegisterOutcome, NoiseHandshake,
+# NoiseTransport, ControlConnection, UpgradeRequest, AsyncControlStream, ControlConfig,
+# WireError, etc.) is consumed by examples/connect.rs, tests/wire_integration.rs, and
+# the future histos coordination server. These items are library API by design — the
+# pub modules in lib.rs re-export them. Narrowing to pub(crate) would break both the
+# example and the integration test, which live in separate compilation units.
+RUST/pub-visibility:crates/dictyon/src/control.rs
+RUST/pub-visibility:crates/dictyon/src/noise.rs
+RUST/pub-visibility:crates/dictyon/src/transport.rs
+RUST/pub-visibility:crates/dictyon/src/wire.rs
