@@ -163,6 +163,10 @@ async fn register_node(
             let resp = client.poll_registration(stream, &auth_url).await?;
             info!(authorized = resp.machine_authorized, "auth complete");
         }
+        // RegisterOutcome is #[non_exhaustive]; cover future variants.
+        _ => {
+            warn!("unknown register outcome variant; treating as unsupported");
+        }
     }
     Ok(())
 }

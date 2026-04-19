@@ -20,6 +20,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Errors that can occur when parsing or handling keys.
 #[derive(Debug, Snafu)]
+#[non_exhaustive]
 pub enum KeyError {
     /// The key string is missing the expected prefix.
     #[snafu(display("key missing prefix '{prefix}': got '{input}'"))]

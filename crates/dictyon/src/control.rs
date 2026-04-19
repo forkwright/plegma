@@ -29,6 +29,7 @@ use crate::wire::AsyncControlStream;
 
 /// Errors from control protocol operations.
 #[derive(Debug, Snafu)]
+#[non_exhaustive]
 pub enum ControlError {
     /// JSON serialization or deserialization failed.
     #[snafu(display("json error: {message}"))]
@@ -84,6 +85,7 @@ impl From<crate::wire::WireError> for ControlError {
 /// When the machine already has a valid pre-auth key, the server
 /// authorizes it immediately ([`RegisterOutcome::Authorized`]). Otherwise,
 /// the user must visit an auth URL ([`RegisterOutcome::NeedsAuth`]).
+#[non_exhaustive]
 pub enum RegisterOutcome {
     /// The node was authorized; contains the server's registration response.
     Authorized(RegisterResponse),
@@ -174,7 +176,7 @@ impl ControlClient {
     pub fn build_register_request(&self, auth_key: Option<&str>) -> Result<Vec<u8>, ControlError> {
         let req = RegisterRequest {
             node_key: self.node_key.public_key().to_hex(),
-            old_node_key: String::new(),
+            old_node_key: String::new(), // kanon:ignore RUST/plain-string-secret -- public key hex, not a secret
             auth: auth_key.map(|k| AuthInfo {
                 auth_key: Some(k.to_string()),
             }),
@@ -229,7 +231,7 @@ impl ControlClient {
     ) -> Result<RegisterResponse, ControlError> {
         let req = RegisterRequest {
             node_key: self.node_key.public_key().to_hex(),
-            old_node_key: String::new(),
+            old_node_key: String::new(), // kanon:ignore RUST/plain-string-secret -- public key hex, not a secret
             auth: None,
             hostinfo: self.hostinfo(),
             followup: Some(followup_url.to_string()),
@@ -361,7 +363,7 @@ impl ControlClient {
                 // First response: full initialization.
                 let self_node = resp.node.unwrap_or_else(|| Node {
                     id: 0,
-                    key: String::new(),
+                    key: String::new(), // kanon:ignore RUST/plain-string-secret -- public key hex, not a secret
                     name: String::new(),
                     addresses: Vec::new(),
                     allowed_ips: None,

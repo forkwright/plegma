@@ -13,6 +13,7 @@ use crate::wire::WireError;
 /// Unified error for all dictyon operations.
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub(crate)))]
+#[non_exhaustive]
 pub enum DictyonError {
     /// A wire-layer I/O or TLS error.
     #[snafu(display("wire error: {source}"))]

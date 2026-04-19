@@ -55,6 +55,7 @@ const FRAME_TYPE_TRANSPORT: u8 = 0x04;
 
 /// Errors that can occur in the wire layer.
 #[derive(Debug, Snafu)]
+#[non_exhaustive]
 pub enum WireError {
     /// DNS resolution or TCP connect failed.
     #[snafu(display("TCP connect failed: {source}"))]

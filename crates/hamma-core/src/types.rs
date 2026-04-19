@@ -22,13 +22,18 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize)]
 pub struct RegisterRequest {
     /// The current node key, serialized as `"nodekey:hex..."`.
+    ///
+    /// This is the *public* key half of the node keypair (typed hex
+    /// identifier). Not a secret; the control server returns and logs it
+    /// freely. `SecretString` would lose Serialize semantics used by
+    /// `serde_json` for the wire format.
     #[serde(rename = "NodeKey")]
-    pub node_key: String,
+    pub node_key: String, // kanon:ignore RUST/plain-string-secret -- public key hex, not a secret
 
     /// The previous node key, if rotating due to expiry. Empty string on
-    /// first registration.
+    /// first registration. Also a public key hex, not a secret.
     #[serde(rename = "OldNodeKey")]
-    pub old_node_key: String,
+    pub old_node_key: String, // kanon:ignore RUST/plain-string-secret -- public key hex, not a secret
 
     /// Pre-authentication key for headless registration. `None` triggers
     /// the interactive auth flow.
@@ -109,13 +114,15 @@ pub struct MapRequest {
     #[serde(rename = "Version")]
     pub version: u64,
 
-    /// This node's public key.
+    /// This node's public key, serialized as `"nodekey:hex..."`. Public
+    /// identifier, not a secret.
     #[serde(rename = "NodeKey")]
-    pub node_key: String,
+    pub node_key: String, // kanon:ignore RUST/plain-string-secret -- public key hex, not a secret
 
-    /// This node's disco key.
+    /// This node's disco public key, serialized as `"discokey:hex..."`.
+    /// Public identifier used for NAT traversal; not a secret.
     #[serde(rename = "DiscoKey")]
-    pub disco_key: String,
+    pub disco_key: String, // kanon:ignore RUST/plain-string-secret -- public key hex, not a secret
 
     /// Locally discovered endpoints.
     #[serde(rename = "Endpoints")]
@@ -188,9 +195,10 @@ pub struct Node {
     #[serde(rename = "ID")]
     pub id: i64,
 
-    /// The node's public key, serialized as `"nodekey:hex..."`.
+    /// The node's public key, serialized as `"nodekey:hex..."`. Public
+    /// identifier, not a secret.
     #[serde(rename = "Key")]
-    pub key: String,
+    pub key: String, // kanon:ignore RUST/plain-string-secret -- public key hex, not a secret
 
     /// The node's FQDN (trailing dot in Tailscale convention).
     #[serde(rename = "Name")]

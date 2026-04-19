@@ -27,6 +27,7 @@ const UPGRADE_HEADER_VALUE: &str = "tailscale-control-protocol";
 
 /// Errors specific to the control connection transport.
 #[derive(Debug, Snafu)]
+#[non_exhaustive]
 pub enum TransportError {
     /// A Noise-layer error occurred.
     #[snafu(display("noise error: {source}"))]

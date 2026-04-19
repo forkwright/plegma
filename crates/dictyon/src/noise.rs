@@ -46,6 +46,7 @@ fn prologue() -> Vec<u8> {
 
 /// Errors that can occur during the Noise handshake or transport.
 #[derive(Debug, Snafu)]
+#[non_exhaustive]
 pub enum NoiseError {
     /// The Noise handshake failed.
     #[snafu(display("noise handshake failed: {message}"))]
