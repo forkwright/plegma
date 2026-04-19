@@ -82,19 +82,6 @@ jobs:
       - name: Build docs
         run: cargo doc --workspace --no-deps
 
-  # WHY: Binary builds and runs correctly with default features.
-  # Catches link errors and missing runtime deps.
-  smoke:
-    name: Binary smoke test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      # PROJECT: replace BINARY_CRATE and BINARY_NAME with your project's values
-      - name: Build binary
-        run: cargo build --release -p BINARY_CRATE
-      - name: Verify binary runs
-        run: ./target/release/BINARY_NAME --version || ./target/release/BINARY_NAME --help || true
+  # NOTE: No "Binary smoke test" job — hamma is a library-only workspace
+  # (dictyon + hamma-core, no [[bin]] targets). Reintroduce when a CLI/daemon
+  # crate is added, pinning BINARY_CRATE/BINARY_NAME to real values.
