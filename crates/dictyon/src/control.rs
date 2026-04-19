@@ -125,9 +125,12 @@ pub struct Netmap {
 /// client.apply_map_response(map_resp);
 /// ```
 pub struct ControlClient {
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "transport reserved for synchronous API, not yet wired"
+    )]
     transport: ControlConnection,
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "machine_key reserved for future rotation logic")]
     machine_key: MachinePrivate,
     node_key: NodePrivate,
     disco_key: DiscoPrivate,
@@ -311,13 +314,18 @@ impl ControlClient {
     /// short or the declared size exceeds the available data, or
     /// [`ControlError::Json`] if the payload is not valid JSON.
     pub fn parse_map_response(frame: &[u8]) -> Result<MapResponse, ControlError> {
-        if frame.len() < 4 {
-            return Err(ControlError::MalformedResponse {
+        let header: &[u8; 4] = frame
+            .get(..4)
+            .and_then(|h| h.try_into().ok())
+            .ok_or_else(|| ControlError::MalformedResponse {
                 message: format!("frame too short: {} bytes, need at least 4", frame.len()),
-            });
-        }
+            })?;
 
-        let size = u32::from_le_bytes([frame[0], frame[1], frame[2], frame[3]]) as usize;
+        let size = usize::try_from(u32::from_le_bytes(*header)).map_err(|_| {
+            ControlError::MalformedResponse {
+                message: "declared size exceeds usize::MAX".to_string(),
+            }
+        })?;
 
         let payload = frame
             .get(4..4 + size)
@@ -431,7 +439,10 @@ impl ControlClient {
     ///
     /// Takes `&self` because future versions will include machine-specific
     /// data (backend log ID, capability version).
-    #[allow(clippy::unused_self)]
+    #[expect(
+        clippy::unused_self,
+        reason = "signature reserves &self for future machine-specific fields (backend log ID, capability version)"
+    )]
     fn hostinfo(&self) -> Hostinfo {
         let hostname = gethostname();
         Hostinfo {
@@ -472,7 +483,10 @@ fn parse_register_response(raw: &[u8]) -> Result<RegisterResponse, ControlError>
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[expect(
+    clippy::expect_used,
+    reason = "tests use expect() for invariants that must hold"
+)]
 mod tests {
     use hamma_core::keys::{DiscoPrivate, MachinePrivate, NodePrivate};
     use hamma_core::types::{DnsConfig, DnsResolver, MapResponse, Node};

@@ -271,7 +271,10 @@ pub struct DerpMap {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[expect(
+    clippy::expect_used,
+    reason = "tests use expect() for invariants that must hold"
+)]
 mod tests {
     use super::*;
 

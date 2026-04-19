@@ -15,9 +15,9 @@
 //!    `[1B type=0x04][2B BE length][ciphertext]`.
 
 use base64::Engine;
+use snafu::Snafu;
 
 use crate::noise::{NoiseError, NoiseHandshake, NoiseTransport};
-use snafu::Snafu;
 
 /// The HTTP upgrade path for the Tailscale Noise protocol.
 const UPGRADE_PATH: &str = "/ts2021";
@@ -174,7 +174,10 @@ impl ControlConnection {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[expect(
+    clippy::expect_used,
+    reason = "tests use expect() for invariants that must hold"
+)]
 mod tests {
     use hamma_core::keys::MachinePrivate;
 

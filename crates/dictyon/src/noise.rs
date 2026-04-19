@@ -207,20 +207,21 @@ impl NoiseHandshake {
         };
 
         // Parse framed response: [1B msg_type][2B payload_len BE][noise_msg]
-        if response.len() < 3 {
-            return Err(NoiseError::HandshakeFailed {
+        let header: [u8; 3] = response
+            .get(..3)
+            .and_then(|h| h.try_into().ok())
+            .ok_or_else(|| NoiseError::HandshakeFailed {
                 message: "response too short".into(),
-            });
-        }
+            })?;
 
-        let msg_type = response[0];
+        let [msg_type, len_hi, len_lo] = header;
         if msg_type != MSG_TYPE_RESPONSE {
             return Err(NoiseError::HandshakeFailed {
                 message: format!("unexpected message type: 0x{msg_type:02x}"),
             });
         }
 
-        let payload_len = u16::from_be_bytes([response[1], response[2]]) as usize;
+        let payload_len = usize::from(u16::from_be_bytes([len_hi, len_lo]));
         let noise_msg =
             response
                 .get(3..3 + payload_len)
@@ -330,7 +331,10 @@ impl NoiseTransport {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[expect(
+    clippy::expect_used,
+    reason = "tests use expect() for invariants that must hold"
+)]
 mod tests {
     use super::*;
 

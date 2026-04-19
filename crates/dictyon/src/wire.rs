@@ -188,13 +188,14 @@ impl AsyncControlStream {
             .await
             .context(TlsSnafu)?;
 
-        if header[0] != FRAME_TYPE_TRANSPORT {
+        let [frame_type, len_hi, len_lo] = header;
+        if frame_type != FRAME_TYPE_TRANSPORT {
             return Err(WireError::Frame {
-                message: format!("unexpected frame type: 0x{:02x}", header[0]),
+                message: format!("unexpected frame type: 0x{frame_type:02x}"),
             });
         }
 
-        let body_len = u16::from_be_bytes([header[1], header[2]]) as usize;
+        let body_len = usize::from(u16::from_be_bytes([len_hi, len_lo]));
         let mut ciphertext = vec![0u8; body_len];
         self.stream
             .read_exact(&mut ciphertext)
@@ -412,11 +413,13 @@ fn build_tls_config() -> ClientConfig {
 
 /// Extract the hostname and port from a URL like `https://host` or
 /// `https://host:port`.
+///
+/// Only `https://` URLs are accepted; plain HTTP is rejected because all
+/// control-plane traffic carries credentials and must be TLS-wrapped.
 fn parse_host_port(url: &str) -> Result<(String, u16), WireError> {
     let without_scheme = url
         .trim_end_matches('/')
         .strip_prefix("https://")
-        .or_else(|| url.trim_end_matches('/').strip_prefix("http://"))
         .ok_or_else(|| WireError::InvalidUrl {
             url: url.to_string(),
         })?;
@@ -431,8 +434,17 @@ fn parse_host_port(url: &str) -> Result<(String, u16), WireError> {
 
     if let Some(bracket_end) = host_port.rfind(']') {
         // IPv6 address: `[::1]:443` or `[::1]`
-        let after = &host_port[bracket_end + 1..];
-        let host = host_port[..=bracket_end].to_string();
+        let after = host_port
+            .get(bracket_end + 1..)
+            .ok_or_else(|| WireError::InvalidUrl {
+                url: url.to_string(),
+            })?;
+        let host = host_port
+            .get(..=bracket_end)
+            .ok_or_else(|| WireError::InvalidUrl {
+                url: url.to_string(),
+            })?
+            .to_string();
         let port = if let Some(port_str) = after.strip_prefix(':') {
             port_str.parse::<u16>().map_err(|_| WireError::InvalidUrl {
                 url: url.to_string(),
@@ -478,7 +490,8 @@ async fn read_noise_response_frame(
     let mut header = [0u8; 3];
     stream.read_exact(&mut header).await.context(TlsSnafu)?;
 
-    let payload_len = u16::from_be_bytes([header[1], header[2]]) as usize;
+    let [_msg_type, len_hi, len_lo] = header;
+    let payload_len = usize::from(u16::from_be_bytes([len_hi, len_lo]));
     let mut noise_msg = vec![0u8; payload_len];
     stream.read_exact(&mut noise_msg).await.context(TlsSnafu)?;
 
@@ -503,8 +516,17 @@ async fn read_upgrade_response(
                 message: "header terminator not found".to_string(),
             })?;
 
-    let headers_bytes = &buf[..sep_pos];
-    let body = buf[sep_pos + 4..].to_vec();
+    let headers_bytes = buf
+        .get(..sep_pos)
+        .ok_or_else(|| WireError::MalformedHeaders {
+            message: "header separator position out of bounds".to_string(),
+        })?;
+    let body = buf
+        .get(sep_pos + 4..)
+        .ok_or_else(|| WireError::MalformedHeaders {
+            message: "header body position out of bounds".to_string(),
+        })?
+        .to_vec();
 
     let headers_str =
         std::str::from_utf8(headers_bytes).map_err(|_| WireError::MalformedHeaders {
@@ -525,7 +547,7 @@ async fn read_until_header_end(
 
     loop {
         stream.read_exact(&mut byte).await.context(TlsSnafu)?;
-        buf.push(byte[0]);
+        buf.extend_from_slice(&byte);
 
         if buf.len() > MAX_HEADER_BYTES {
             return Err(WireError::MalformedHeaders {
@@ -534,7 +556,11 @@ async fn read_until_header_end(
         }
 
         // Check for \r\n\r\n
-        if buf.len() >= 4 && &buf[buf.len() - 4..] == b"\r\n\r\n" {
+        if buf.len() >= 4
+            && buf
+                .get(buf.len() - 4..)
+                .is_some_and(|tail| tail == b"\r\n\r\n")
+        {
             break;
         }
     }
@@ -551,7 +577,12 @@ async fn read_full_response(
     loop {
         match stream.read(&mut chunk).await {
             Ok(0) => break,
-            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+            Ok(n) => {
+                let slice = chunk.get(..n).ok_or_else(|| WireError::KeyParse {
+                    message: "read returned more bytes than buffer".to_string(),
+                })?;
+                buf.extend_from_slice(slice);
+            }
             Err(e) => return Err(WireError::Tls { source: e }),
         }
         if buf.len() > MAX_HEADER_BYTES * 4 {
@@ -593,7 +624,10 @@ fn parse_server_key_response(response: &[u8]) -> Result<MachinePublic, WireError
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[expect(
+    clippy::expect_used,
+    reason = "tests use expect() for invariants that must hold"
+)]
 mod tests {
     use super::*;
 

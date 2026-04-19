@@ -241,10 +241,16 @@ fn hex_decode(s: &str) -> Result<Vec<u8>, KeyError> {
         });
     }
     let mut bytes = Vec::with_capacity(s.len() / 2);
-    for chunk in s.as_bytes().chunks(2) {
-        // Safety: chunks(2) on a valid UTF-8 str with even length gives ASCII pairs.
-        let hi = hex_nibble(chunk[0]).map_err(|e| KeyError::InvalidHex { message: e })?;
-        let lo = hex_nibble(chunk[1]).map_err(|e| KeyError::InvalidHex { message: e })?;
+    for chunk in s.as_bytes().chunks_exact(2) {
+        // chunks_exact(2) on an even-length &[u8] always yields 2-byte slices.
+        let hi_byte = *chunk.first().ok_or_else(|| KeyError::InvalidHex {
+            message: "chunk missing first nibble".to_string(),
+        })?;
+        let lo_byte = *chunk.get(1).ok_or_else(|| KeyError::InvalidHex {
+            message: "chunk missing second nibble".to_string(),
+        })?;
+        let hi = hex_nibble(hi_byte).map_err(|e| KeyError::InvalidHex { message: e })?;
+        let lo = hex_nibble(lo_byte).map_err(|e| KeyError::InvalidHex { message: e })?;
         bytes.push((hi << 4) | lo);
     }
     Ok(bytes)
@@ -264,7 +270,10 @@ fn hex_nibble(b: u8) -> Result<u8, String> {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[expect(
+    clippy::expect_used,
+    reason = "tests use expect() for invariants that must hold"
+)]
 mod tests {
     use super::*;
 
