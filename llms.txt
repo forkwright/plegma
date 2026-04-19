@@ -1,0 +1,55 @@
+# hamma
+
+> Clean-room Rust implementation of a Tailscale-compatible mesh networking stack. Wire-compatible with tailscale.com's control plane; memory-safe end-to-end; no C, no Go, no vendor blobs beyond the audited `boringtun` WireGuard data plane. Pre-alpha, design-phase.
+
+Hamma is the networking layer for the [forkwright](https://github.com/forkwright) ecosystem - aletheia (cognitive runtime), akroasis (signals intelligence), harmonia (media platform), and thumos (sovereign mobile OS) - and an open option for any project wanting a memory-safe, auditable mesh client. Phase A validates the Rust client against tailscale.com before the sovereign coordination server (`histos`) is built.
+
+## Architecture
+
+Workspace of Rust crates. Greek names for persistent identities, English for code (see [kanon GNOMON.md](https://github.com/forkwright/kanon/blob/main/crates/basanos/standards/GNOMON.md)):
+
+- [crates/dictyon](crates/dictyon/): Peer client (δίκτυον, "net"). WireGuard data plane via boringtun, Noise control protocol to the coordination server, DERP relay client, MagicDNS resolver, route configuration. Phase A, ships first.
+- [crates/hamma-core](crates/hamma-core/): Shared types. Noise framing, WireGuard key types, peer identity newtypes, ACL types, protocol constants. Depended on by every other crate.
+- `crates/histos` (ἱστός, "loom"): Coordination server. Peer registry, ACL enforcement, preauth keys, DERP coordination. Replaces Headscale/tailscale.com when sovereignty is wanted. Phase B, not yet scaffolded.
+- `crates/hamma-derp`: DERP relay server. Optional own-relay for full-stack independence; Phase A can reuse Tailscale's DERP. Phase D, not yet scaffolded.
+
+## Agent entry points
+
+- [CLAUDE.md](CLAUDE.md): Project orientation for AI agents - patterns, key commands, pre-PR checklist.
+- [README.md](README.md): Public-facing description, design principles, phase plan.
+- [Cargo.toml](Cargo.toml): Workspace manifest, dependency policy entry point.
+
+## Standards
+
+Hamma is built against [kanon](https://github.com/forkwright/kanon) standards. The set that governs this repo:
+
+- [RUST.md](https://github.com/forkwright/kanon/blob/main/crates/basanos/standards/RUST.md): Edition, snafu errors, tokio async, banned crates, lint floor.
+- [TESTING.md](https://github.com/forkwright/kanon/blob/main/crates/basanos/standards/TESTING.md): `verb_condition` test naming, error-path coverage requirements.
+- [SECURITY.md](https://github.com/forkwright/kanon/blob/main/crates/basanos/standards/SECURITY.md): Secret handling, input validation, unsafe justification rules.
+- [ARCHITECTURE.md](https://github.com/forkwright/kanon/blob/main/crates/basanos/standards/ARCHITECTURE.md): Crate boundary discipline, dependency direction.
+- [REPO-SETUP.md](https://github.com/forkwright/kanon/blob/main/crates/basanos/standards/REPO-SETUP.md): Workspace configuration, CI gates, doc matrix.
+- [WRITING.md](https://github.com/forkwright/kanon/blob/main/crates/basanos/standards/WRITING.md): Doc comment style, commit message voice.
+- [AGENT-DOCS.md](https://github.com/forkwright/kanon/blob/main/crates/basanos/standards/AGENT-DOCS.md): Context-file taxonomy, inclusion filter, size limits.
+
+Local mirror under [standards/](standards/). Lint: `kanon lint . --summary`. Gate: `kanon gate`.
+
+## Planning
+
+Roadmap, phase plans, and decision log live in the kanon forge, not here:
+
+- [projects/hamma/](https://github.com/forkwright/kanon/tree/main/projects/hamma): ROADMAP, STATE, PLAN, SUMMARY.
+
+## Commands
+
+- Build: `cargo check --workspace`
+- Test: `cargo test --workspace`
+- Lint: `kanon lint . --summary`
+- Gate: `cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all -- --check && cargo deny check`
+
+## Scope
+
+Phase A feature target: peer WireGuard, MagicDNS, exit nodes, ACLs. Out of scope: Taildrop, Tailscale SSH, Funnel, app connectors.
+
+## License
+
+[AGPL-3.0-or-later](LICENSE). Forkwright project default; revisited before the first public release given Rust-networking permissive-license convention. See CLAUDE.md for the open question.
