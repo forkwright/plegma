@@ -20,6 +20,7 @@
 use std::sync::Arc;
 
 use base64::Engine;
+use hamma_core::config::{Config, WireConfig};
 use hamma_core::keys::{KeyError, MachinePrivate, MachinePublic};
 use rustls::ClientConfig;
 use snafu::{ResultExt, Snafu};
@@ -31,23 +32,30 @@ use crate::noise::NoiseHandshake;
 use crate::transport::ControlConnection;
 
 // ---------------------------------------------------------------------------
-// Constants
+// Protocol-fixed constants (NOT parameterizable)
 // ---------------------------------------------------------------------------
+//
+// The path, upgrade-header value, key-endpoint version, and frame-type byte
+// are wire-contract values: changing any of them breaks compatibility with
+// every tailscale-compatible control server. They stay `const` here so the
+// intent is syntactically obvious.
 
-/// Noise upgrade path.
+/// Noise upgrade path (Tailscale ts2021 wire contract).
 const UPGRADE_PATH: &str = "/ts2021";
 
-/// Key endpoint path (v=71 is the protocol version dictyon speaks).
+/// Key endpoint path. `v=71` is the wire version dictyon speaks; bumping
+/// it is a protocol break, not a tuning operation.
 const KEY_PATH: &str = "/key?v=71";
 
 /// HTTP Upgrade header value for the Tailscale control protocol.
 const UPGRADE_HEADER: &str = "tailscale-control-protocol";
 
-/// Maximum HTTP response header block we'll buffer (8 KiB).
-const MAX_HEADER_BYTES: usize = 8192;
-
 /// Transport frame type byte for post-handshake messages.
 const FRAME_TYPE_TRANSPORT: u8 = 0x04;
+
+// Tuning knobs (max header bytes, read chunk size, buffer capacity hints)
+// live on [`hamma_core::config::WireConfig`]. The free functions below
+// accept a `&Config` or fall back to `Config::default()`.
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -137,6 +145,27 @@ pub struct ControlConfig {
     pub control_url: String,
     /// This machine's private key.
     pub machine_key: MachinePrivate,
+    /// Behavioral tuning knobs (buffer sizes, timeouts, framing limits).
+    ///
+    /// Defaults to [`Config::default`]; override to expose operator-set or
+    /// agent-queried values to the wire and Noise layers.
+    pub config: Config,
+}
+
+impl ControlConfig {
+    /// Build a [`ControlConfig`] with default tuning knobs.
+    ///
+    /// Equivalent to setting `config: Config::default()` in a struct literal
+    /// and kept as the one-call-site constructor for callers that only care
+    /// about URL + key.
+    #[must_use]
+    pub fn new(control_url: String, machine_key: MachinePrivate) -> Self {
+        Self {
+            control_url,
+            machine_key,
+            config: Config::default(),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -224,11 +253,28 @@ impl AsyncControlStream {
 
 /// Fetch the control server's public machine key from `GET /key?v=71`.
 ///
+/// Uses [`WireConfig::default`] for buffer/limit knobs. For a caller-tuned
+/// variant see [`fetch_server_key_with_config`].
+///
 /// # Errors
 ///
 /// Returns [`WireError`] on TCP/TLS failure, JSON parse failure, or if the
 /// returned key cannot be parsed.
 pub async fn fetch_server_key(control_url: &str) -> Result<MachinePublic, WireError> {
+    fetch_server_key_with_config(control_url, &WireConfig::default()).await
+}
+
+/// Fetch the control server's public machine key using a caller-supplied
+/// [`WireConfig`] for I/O buffer/limit tuning.
+///
+/// # Errors
+///
+/// Returns [`WireError`] on TCP/TLS failure, JSON parse failure, or if the
+/// returned key cannot be parsed.
+pub async fn fetch_server_key_with_config(
+    control_url: &str,
+    cfg: &WireConfig,
+) -> Result<MachinePublic, WireError> {
     let (host, port) = parse_host_port(control_url)?;
     let tls = build_tls_config();
     let connector = TlsConnector::from(Arc::new(tls));
@@ -254,18 +300,21 @@ pub async fn fetch_server_key(control_url: &str) -> Result<MachinePublic, WireEr
         .await
         .context(TlsSnafu)?;
 
-    let response = read_full_response(&mut tls_stream).await?;
+    let response = read_full_response(&mut tls_stream, cfg).await?;
     parse_server_key_response(&response)
 }
 
 /// Connect to the control server, complete the Noise IK handshake, and
 /// return an [`AsyncControlStream`] ready for control messages.
 ///
+/// Uses the tuning knobs on `config.config`. Default-construct `ControlConfig`
+/// with [`Config::default`] to match pre-config behavior.
+///
 /// # Errors
 ///
 /// Returns [`WireError`] on any I/O, TLS, HTTP, or Noise failure.
 pub async fn connect(config: &ControlConfig) -> Result<AsyncControlStream, WireError> {
-    let server_key = fetch_server_key(&config.control_url).await?;
+    let server_key = fetch_server_key_with_config(&config.control_url, &config.config.wire).await?;
     connect_with_key(config, server_key).await
 }
 
@@ -282,11 +331,18 @@ pub async fn connect_with_tls(
     config: &ControlConfig,
     tls_config: ClientConfig,
 ) -> Result<AsyncControlStream, WireError> {
-    let server_key = fetch_server_key_with_tls(&config.control_url, tls_config.clone()).await?;
+    let server_key = fetch_server_key_with_tls_and_config(
+        &config.control_url,
+        tls_config.clone(),
+        &config.config.wire,
+    )
+    .await?;
     connect_with_key_and_tls(config, server_key, tls_config).await
 }
 
 /// Fetch the server key using a caller-supplied TLS config.
+///
+/// Uses [`WireConfig::default`] for buffer/limit knobs.
 ///
 /// # Errors
 ///
@@ -295,6 +351,21 @@ pub async fn connect_with_tls(
 pub async fn fetch_server_key_with_tls(
     control_url: &str,
     tls_config: ClientConfig,
+) -> Result<MachinePublic, WireError> {
+    fetch_server_key_with_tls_and_config(control_url, tls_config, &WireConfig::default()).await
+}
+
+/// Fetch the server key using caller-supplied TLS config *and* wire-layer
+/// tuning knobs.
+///
+/// # Errors
+///
+/// Returns [`WireError`] on TCP/TLS failure, JSON parse failure, or if the
+/// returned key cannot be parsed.
+pub async fn fetch_server_key_with_tls_and_config(
+    control_url: &str,
+    tls_config: ClientConfig,
+    cfg: &WireConfig,
 ) -> Result<MachinePublic, WireError> {
     let (host, port) = parse_host_port(control_url)?;
     let connector = TlsConnector::from(Arc::new(tls_config));
@@ -320,7 +391,7 @@ pub async fn fetch_server_key_with_tls(
         .await
         .context(TlsSnafu)?;
 
-    let response = read_full_response(&mut tls_stream).await?;
+    let response = read_full_response(&mut tls_stream, cfg).await?;
     parse_server_key_response(&response)
 }
 
@@ -360,9 +431,10 @@ async fn connect_with_key_and_tls(
         .await
         .context(TlsSnafu)?;
 
-    // Build Noise initiation.
+    // Build Noise initiation using the handshake/framing knobs.
     let machine_key_copy = MachinePrivate::from_bytes(*config.machine_key.as_bytes());
-    let mut handshake = NoiseHandshake::new(machine_key_copy, server_key);
+    let mut handshake =
+        NoiseHandshake::with_config(machine_key_copy, server_key, config.config.noise.clone());
     let init_msg = handshake.initiation_message()?;
     let init_b64 = base64::engine::general_purpose::STANDARD.encode(&init_msg);
 
@@ -374,7 +446,7 @@ async fn connect_with_key_and_tls(
         .context(TlsSnafu)?;
 
     // Read HTTP headers; the Noise response frame follows in the stream.
-    let (status_line, _) = read_upgrade_response(&mut tls_stream).await?;
+    let (status_line, _) = read_upgrade_response(&mut tls_stream, &config.config.wire).await?;
 
     if !status_line.contains("101") {
         return Err(WireError::UnexpectedStatus { status_line });
@@ -505,8 +577,9 @@ async fn read_noise_response_frame(
 /// Read until `\r\n\r\n`, returning (`first_line`, `bytes_after_headers`).
 async fn read_upgrade_response(
     stream: &mut tokio_rustls::client::TlsStream<TcpStream>,
+    cfg: &WireConfig,
 ) -> Result<(String, Vec<u8>), WireError> {
-    let buf = read_until_header_end(stream).await?;
+    let buf = read_until_header_end(stream, cfg).await?;
 
     // Split at the header terminator.
     let sep = b"\r\n\r\n";
@@ -542,17 +615,19 @@ async fn read_upgrade_response(
 /// Read from the stream until we see `\r\n\r\n` or hit the size limit.
 async fn read_until_header_end(
     stream: &mut tokio_rustls::client::TlsStream<TcpStream>,
+    cfg: &WireConfig,
 ) -> Result<Vec<u8>, WireError> {
-    let mut buf = Vec::with_capacity(512);
+    let max_header_bytes = cfg.max_header_bytes;
+    let mut buf = Vec::with_capacity(cfg.header_read_initial_capacity);
     let mut byte = [0u8; 1];
 
     loop {
         stream.read_exact(&mut byte).await.context(TlsSnafu)?;
         buf.extend_from_slice(&byte);
 
-        if buf.len() > MAX_HEADER_BYTES {
+        if buf.len() > max_header_bytes {
             return Err(WireError::MalformedHeaders {
-                message: format!("headers exceeded {MAX_HEADER_BYTES} bytes"),
+                message: format!("headers exceeded {max_header_bytes} bytes"),
             });
         }
 
@@ -572,9 +647,11 @@ async fn read_until_header_end(
 /// Read the full HTTP/1.1 response body (for the /key endpoint).
 async fn read_full_response(
     stream: &mut tokio_rustls::client::TlsStream<TcpStream>,
+    cfg: &WireConfig,
 ) -> Result<Vec<u8>, WireError> {
+    let max_body = cfg.key_response_max_bytes();
     let mut buf = Vec::new();
-    let mut chunk = [0u8; 4096];
+    let mut chunk = vec![0u8; cfg.response_read_chunk_bytes];
     loop {
         match stream.read(&mut chunk).await {
             Ok(0) => break,
@@ -586,7 +663,7 @@ async fn read_full_response(
             }
             Err(e) => return Err(WireError::Tls { source: e }),
         }
-        if buf.len() > MAX_HEADER_BYTES * 4 {
+        if buf.len() > max_body {
             return Err(WireError::KeyParse {
                 message: "response too large".to_string(),
             });

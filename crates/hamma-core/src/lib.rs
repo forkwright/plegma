@@ -10,5 +10,8 @@
 
 #![deny(missing_docs)]
 
+pub mod config;
 pub mod keys;
 pub mod types;
+
+pub use config::Config;

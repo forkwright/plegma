@@ -13,14 +13,29 @@
 //!
 //! See `control/controlbase/` in the Tailscale Go source for reference.
 
+use hamma_core::config::NoiseConfig;
 use hamma_core::keys::{MachinePrivate, MachinePublic};
 use snafu::Snafu;
 use snow::{Builder, HandshakeState, TransportState};
 
+// ---------------------------------------------------------------------------
+// Protocol-fixed constants (NOT parameterizable)
+// ---------------------------------------------------------------------------
+//
+// Each constant below is a wire-format or cryptographic invariant: changing
+// it is a protocol break, not a tuning operation. They stay `const` at the
+// module scope so the boundary between "what the peer expects" and "what
+// the operator may tune" is syntactically obvious.
+
 /// Noise protocol parameters for the Tailscale control plane.
+///
+/// Cryptographic invariant: changing this changes the handshake algorithm
+/// and breaks wire compatibility with every peer. Do not parameterize.
 const NOISE_PARAMS: &str = "Noise_IK_25519_ChaChaPoly_BLAKE2s";
 
 /// Current protocol version for the Noise handshake.
+///
+/// Wire-format invariant: peers key their prologue off this value.
 const PROTOCOL_VERSION: u16 = 1;
 
 /// Message type for the initiator's first message.
@@ -32,11 +47,14 @@ const MSG_TYPE_RESPONSE: u8 = 0x02;
 /// Message type for post-handshake transport frames.
 const MSG_TYPE_TRANSPORT: u8 = 0x04;
 
-/// Maximum Noise transport frame payload size (before encryption).
-const MAX_FRAME_PAYLOAD: usize = 4096;
-
 /// Poly1305 tag length added by AEAD encryption.
+///
+/// Cryptographic invariant of ChaCha20-Poly1305. Do not parameterize.
 const TAG_LEN: usize = 16;
+
+// Tuning knobs (payload size, scratch-buffer size) live on
+// [`hamma_core::config::NoiseConfig`]. See [`NoiseHandshake::with_config`]
+// and [`NoiseTransport::encrypt`] for consumption.
 
 /// Prologue mixed into the handshake hash, binding the session to the
 /// Tailscale control protocol and its version.
@@ -95,6 +113,7 @@ impl From<snow::Error> for NoiseError {
 ///    server's response to complete the handshake.
 pub struct NoiseHandshake {
     state: HandshakePhase,
+    config: NoiseConfig,
 }
 
 /// Internal state machine for the handshake.
@@ -118,11 +137,27 @@ impl NoiseHandshake {
     /// * `machine_key` - The client's machine identity key.
     /// * `server_public` - The server's static public key (from `/key?v=N`).
     pub fn new(machine_key: MachinePrivate, server_public: MachinePublic) -> Self {
+        Self::with_config(machine_key, server_public, NoiseConfig::default())
+    }
+
+    /// Create a new handshake initiator with a custom [`NoiseConfig`].
+    ///
+    /// # Arguments
+    ///
+    /// * `machine_key` - The client's machine identity key.
+    /// * `server_public` - The server's static public key (from `/key?v=N`).
+    /// * `config` - Framing tuning knobs (scratch buffer sizes, payload cap).
+    pub fn with_config(
+        machine_key: MachinePrivate,
+        server_public: MachinePublic,
+        config: NoiseConfig,
+    ) -> Self {
         Self {
             state: HandshakePhase::Ready {
                 machine_key,
                 server_public,
             },
+            config,
         }
     }
 
@@ -160,8 +195,9 @@ impl NoiseHandshake {
 
         // IK message 1: e, es, s, ss
         // snow needs a buffer large enough for the handshake message.
-        // IK msg1 = 32 (ephemeral pub) + 32 (static pub encrypted) + 16 (tag) + 16 (empty payload tag) = 96
-        let mut noise_msg = vec![0u8; 256];
+        // IK msg1 = 32 (ephemeral pub) + 32 (static pub encrypted) + 16 (tag) + 16 (empty payload tag) = 96.
+        // Scratch buffer size is a tuning knob -- see NoiseConfig::handshake_scratch_bytes.
+        let mut noise_msg = vec![0u8; self.config.handshake_scratch_bytes];
         let noise_len = handshake.write_message(&[], &mut noise_msg)?;
         noise_msg.truncate(noise_len);
 
@@ -193,6 +229,7 @@ impl NoiseHandshake {
     /// [`NoiseError::Snow`] / [`NoiseError::HandshakeFailed`] if the
     /// response is invalid.
     pub fn process_response(mut self, response: &[u8]) -> Result<NoiseTransport, NoiseError> {
+        let config = self.config.clone();
         let mut handshake = match core::mem::replace(&mut self.state, HandshakePhase::Completed) {
             HandshakePhase::AwaitingResponse { handshake } => *handshake,
             HandshakePhase::Ready { .. } => {
@@ -231,12 +268,13 @@ impl NoiseHandshake {
                 })?;
 
         // IK message 2: e, ee, se
-        let mut payload_buf = vec![0u8; 256];
+        // Scratch buffer size is a tuning knob -- see NoiseConfig::handshake_scratch_bytes.
+        let mut payload_buf = vec![0u8; config.handshake_scratch_bytes];
         let _payload_len = handshake.read_message(noise_msg, &mut payload_buf)?;
 
         let transport = handshake.into_transport_mode()?;
 
-        Ok(NoiseTransport { transport })
+        Ok(NoiseTransport { transport, config })
     }
 }
 
@@ -246,6 +284,7 @@ impl NoiseHandshake {
 /// `[1B type=0x04][2B BE length][ciphertext]`.
 pub struct NoiseTransport {
     transport: TransportState,
+    config: NoiseConfig,
 }
 
 impl NoiseTransport {
@@ -259,12 +298,10 @@ impl NoiseTransport {
     /// the maximum frame payload size, or [`NoiseError::Snow`] on
     /// encryption failure.
     pub fn encrypt(&mut self, plaintext: &[u8]) -> Result<Vec<u8>, NoiseError> {
-        if plaintext.len() > MAX_FRAME_PAYLOAD {
+        let max_payload = self.config.max_frame_payload;
+        if plaintext.len() > max_payload {
             return Err(NoiseError::HandshakeFailed {
-                message: format!(
-                    "payload too large: {} > {MAX_FRAME_PAYLOAD}",
-                    plaintext.len()
-                ),
+                message: format!("payload too large: {} > {max_payload}", plaintext.len()),
             });
         }
 
@@ -323,7 +360,20 @@ impl NoiseTransport {
     /// paired transport state without going through the full handshake flow.
     #[doc(hidden)]
     pub fn from_snow(transport: TransportState) -> Self {
-        Self { transport }
+        Self {
+            transport,
+            config: NoiseConfig::default(),
+        }
+    }
+
+    /// Construct a [`NoiseTransport`] from a raw `snow::TransportState` with
+    /// a custom [`NoiseConfig`].
+    ///
+    /// Exposed for tests that need to exercise non-default framing limits
+    /// without running the full handshake.
+    #[doc(hidden)]
+    pub fn from_snow_with_config(transport: TransportState, config: NoiseConfig) -> Self {
+        Self { transport, config }
     }
 }
 

@@ -8,7 +8,14 @@
     reason = "tests use expect() for invariants that must hold"
 )]
 
+use hamma_core::config::DEFAULT_MAX_FRAME_PAYLOAD;
+
 use super::*;
+
+/// Legacy alias for the default max-frame-payload; kept local to the test
+/// module so existing test bodies stay readable without re-importing the
+/// full `NoiseConfig` default path at every use site.
+const MAX_FRAME_PAYLOAD: usize = DEFAULT_MAX_FRAME_PAYLOAD;
 
 /// Helper: build a snow responder for testing against our initiator.
 fn build_responder(server_private: &[u8; 32]) -> Result<HandshakeState, NoiseError> {
@@ -426,11 +433,50 @@ proptest::proptest! {
 }
 
 // -----------------------------------------------------------------------
+// Config-driven behavior tests
+// -----------------------------------------------------------------------
+
+/// A non-default `NoiseConfig` must change observable behavior: tightening
+/// `max_frame_payload` rejects a payload that the default would accept.
+#[test]
+fn noise_config_tightens_frame_payload_limit() {
+    use hamma_core::config::NoiseConfig;
+
+    // Size chosen to be well below the default (4 KiB) but above the
+    // custom limit, so the same payload passes default and fails custom.
+    let custom_limit = 128;
+    let plaintext = vec![0xABu8; 256];
+
+    // Baseline: default config accepts 256-byte payload.
+    let (mut default_client, _) = paired_transports();
+    default_client
+        .encrypt(&plaintext)
+        .expect("default config should accept 256-byte payload");
+
+    // Custom: build a transport with a tightened limit and prove it rejects
+    // the same payload. Re-using the paired_transports helper and then
+    // swapping to a custom-config variant via from_snow_with_config keeps
+    // the handshake plumbing reused.
+    let (client_state, _server_state) = paired_snow_transports();
+    let mut custom_cfg = NoiseConfig::default();
+    custom_cfg.max_frame_payload = custom_limit;
+    let mut custom_client = NoiseTransport::from_snow_with_config(client_state, custom_cfg);
+    let result = custom_client.encrypt(&plaintext);
+    assert!(
+        result.is_err(),
+        "custom config with max_frame_payload={custom_limit} must reject {}-byte payload",
+        plaintext.len()
+    );
+}
+
+// -----------------------------------------------------------------------
 // Shared helpers
 // -----------------------------------------------------------------------
 
-/// Helper: perform a full handshake and return paired transport states.
-fn paired_transports() -> (NoiseTransport, NoiseTransport) {
+/// Helper: perform a full handshake and return paired raw snow transport
+/// states. Lets callers wrap with whichever [`NoiseConfig`] they want to
+/// exercise.
+fn paired_snow_transports() -> (TransportState, TransportState) {
     let machine_key = MachinePrivate::generate();
     let server_key = MachinePrivate::generate();
     let server_pub = server_key.public_key();
@@ -478,16 +524,22 @@ fn paired_transports() -> (NoiseTransport, NoiseTransport) {
         .read_message(&buf[..len], &mut payload)
         .expect("read msg2");
 
-    let client = NoiseTransport::from_snow(
-        initiator
-            .into_transport_mode()
-            .expect("initiator transport"),
-    );
-    let server = NoiseTransport::from_snow(
-        responder
-            .into_transport_mode()
-            .expect("responder transport"),
-    );
+    let client_state = initiator
+        .into_transport_mode()
+        .expect("initiator transport");
+    let server_state = responder
+        .into_transport_mode()
+        .expect("responder transport");
 
-    (client, server)
+    (client_state, server_state)
+}
+
+/// Helper: perform a full handshake and return paired transport states
+/// wrapped with default `NoiseConfig`.
+fn paired_transports() -> (NoiseTransport, NoiseTransport) {
+    let (client_state, server_state) = paired_snow_transports();
+    (
+        NoiseTransport::from_snow(client_state),
+        NoiseTransport::from_snow(server_state),
+    )
 }

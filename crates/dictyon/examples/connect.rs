@@ -123,10 +123,10 @@ async fn run() -> Result<(), ExampleError> {
 
     info!("connecting to {CONTROL_URL}");
 
-    let config = ControlConfig {
-        control_url: CONTROL_URL.to_string(),
-        machine_key: MachinePrivate::from_bytes(*machine_key.as_bytes()),
-    };
+    let config = ControlConfig::new(
+        CONTROL_URL.to_string(),
+        MachinePrivate::from_bytes(*machine_key.as_bytes()),
+    );
 
     let mut stream = connect(&config).await?;
     info!("TLS + Noise handshake complete");

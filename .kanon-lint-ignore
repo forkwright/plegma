@@ -11,13 +11,16 @@ CI/no-format-check:.github/workflows/**
 CI/no-test-step:.github/workflows/**
 
 # hamma-core exports the key hierarchy (MachinePrivate/Public, NodePrivate/Public,
-# DiscoPrivate/Public, MachinePublic::from_hex) and Tailscale-compatible wire types
-# (RegisterRequest, MapRequest, Node, Hostinfo, DnsConfig, DerpMap, ...) that
-# dictyon (and future `histos`) consume by name. Every `pub` here IS the library
-# contract — pub(crate) would hide it from the other workspace crate. See
-# crates/dictyon/src/*.rs imports of `hamma_core::{keys,types}::*`.
+# DiscoPrivate/Public, MachinePublic::from_hex), Tailscale-compatible wire types
+# (RegisterRequest, MapRequest, Node, Hostinfo, DnsConfig, DerpMap, ...), and the
+# behavioral Config (WireConfig, NoiseConfig, and the DEFAULT_* constants
+# documenting their values) that dictyon (and future `histos`) consume by name.
+# Every `pub` here IS the library contract — pub(crate) would hide it from the
+# other workspace crate. See crates/dictyon/src/*.rs imports of
+# `hamma_core::{keys,types,config}::*`.
 RUST/pub-visibility:crates/hamma-core/src/keys.rs
 RUST/pub-visibility:crates/hamma-core/src/types.rs
+RUST/pub-visibility:crates/hamma-core/src/config.rs
 
 # dictyon's public surface (ControlClient, Netmap, RegisterOutcome, NoiseHandshake,
 # NoiseTransport, ControlConnection, UpgradeRequest, AsyncControlStream, ControlConfig,

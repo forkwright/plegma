@@ -300,10 +300,10 @@ async fn connects_and_completes_noise_handshake() {
         // Handshake complete — test just verifies connect() returns Ok.
     });
 
-    let config = dictyon::wire::ControlConfig {
-        control_url: format!("https://127.0.0.1:{}", addr.port()),
-        machine_key: MachinePrivate::generate(),
-    };
+    let config = dictyon::wire::ControlConfig::new(
+        format!("https://127.0.0.1:{}", addr.port()),
+        MachinePrivate::generate(),
+    );
 
     let result = dictyon::wire::connect_with_tls(&config, client_tls_cfg).await;
     assert!(result.is_ok(), "connect_with_tls should succeed");
@@ -399,10 +399,10 @@ async fn register_returns_authorized_with_preauth_key() {
     let node_key = hamma_core::keys::NodePrivate::generate();
     let disco_key = hamma_core::keys::DiscoPrivate::generate();
 
-    let config = dictyon::wire::ControlConfig {
-        control_url: format!("https://127.0.0.1:{}", addr.port()),
-        machine_key: MachinePrivate::from_bytes(*machine_key.as_bytes()),
-    };
+    let config = dictyon::wire::ControlConfig::new(
+        format!("https://127.0.0.1:{}", addr.port()),
+        MachinePrivate::from_bytes(*machine_key.as_bytes()),
+    );
 
     let mut stream = dictyon::wire::connect_with_tls(&config, client_tls_cfg)
         .await
@@ -429,10 +429,10 @@ async fn register_returns_authorized_with_preauth_key() {
 #[tokio::test]
 async fn connection_to_unreachable_host_returns_error() {
     // Port 1 is reserved; connection should fail immediately.
-    let config = dictyon::wire::ControlConfig {
-        control_url: "https://127.0.0.1:1".to_string(),
-        machine_key: MachinePrivate::generate(),
-    };
+    let config = dictyon::wire::ControlConfig::new(
+        "https://127.0.0.1:1".to_string(),
+        MachinePrivate::generate(),
+    );
 
     // Use the default (webpki) TLS config — we expect a TCP connect failure
     // before TLS is even attempted.
