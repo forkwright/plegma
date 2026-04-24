@@ -1,3 +1,9 @@
+<!--
+scope: hamma repo conventions (Tailscale-compatible mesh networking in pure Rust: dictyon, hamma-core, future histos)
+defers_to: ~/menos-ops/CLAUDE.md for machine topology; ~/.claude/CLAUDE.md for operator principles; kanon standards for universal engineering policy
+tightens: no-unsafe/no-unwrap discipline, boringtun as the only audited unsafe boundary
+-->
+
 # CLAUDE.md
 
 Project orientation for AI coding agents working on hamma.
@@ -72,7 +78,7 @@ kanon lint . --summary           # full kanon lint
 
 The forkwright project default is AGPL-3.0-or-later. For a low-level networking library intended for ecosystem adoption, this may hurt uptake  -  the Rust networking convention is permissive (boringtun is BSD-3, hickory-dns is MIT/Apache, tokio is MIT, tailscale itself is BSD-3).
 
-**Before the first public release** (tag v0.1.0 or equivalent), revisit the license with the project maintainer:
+**Before the first public release** (tag v0.1.0 or equivalent), revisit the license with Cody:
 
 - Option A: keep AGPL-3.0-or-later (sovereignty maximalism, forkwright-internal use dominates)
 - Option B: switch to Apache-2.0 (Rust-ecosystem convention, maximal adoption)
