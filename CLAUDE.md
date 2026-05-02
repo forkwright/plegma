@@ -10,7 +10,7 @@ Project orientation for AI coding agents working on hamma.
 
 ## What hamma is
 
-A clean-room Rust Tailscale-compatible mesh networking stack. Pre-alpha, design-phase. Built as the networking layer for the forkwright ecosystem (aletheia, akroasis, harmonia, thumos) and as an OSS contribution to the Rust networking ecosystem.
+A clean-room Rust Tailscale-compatible mesh networking stack. Pre-alpha, with Phase A implementation underway in the `dictyon` peer client. Built as the networking layer for the forkwright ecosystem (aletheia, akroasis, harmonia, thumos) and as an OSS contribution to the Rust networking ecosystem.
 
 See [README.md](README.md) for the public-facing description and [projects/hamma/](https://github.com/forkwright/kanon/tree/main/projects/hamma) in kanon for the full roadmap, phase plans, and decision log.
 
@@ -62,7 +62,7 @@ kanon lint . --summary           # full kanon lint
 
 - **Error handling**: `snafu` with `.context()` propagation and `Location` tracking. No `anyhow`, no `thiserror`. See the RUST.md error handling section.
 - **Async runtime**: `tokio` with the actor-per-component pattern. No shared mutable state across async boundaries. `tokio::sync::Mutex` for async-locked data; `parking_lot::Mutex` for sync-only (never `std::sync::Mutex`  -  it deadlocks held across `.await`).
-- **Time**: `std::time::Instant` for monotonic time, `chrono` / `time` crate for wall-clock when displayed to humans. Wall clock is never a dependency of correctness.
+- **Time**: `std::time::Instant` for monotonic time and `jiff` for wall-clock values when displayed to humans. Wall clock is never a dependency of correctness.
 - **Networking primitives**: `tokio::net` for TCP/UDP, `boringtun` (Cloudflare) for WireGuard data plane. No raw sockets, no nix crate, no libc. No reimplementation of WireGuard crypto  -  use the audited reference.
 - **Identity types**: ed25519 for node identity, Curve25519 for WireGuard tunnel keys, X25519 for Noise handshakes. Wrap each in a newtype to prevent accidental mixing. Types live in `hamma-core`.
 - **Configuration**: TOML files parsed via `figment` with env-var override cascade. See TOML.md in kanon standards.

@@ -7,9 +7,6 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-[lints]
-workspace = true
-
 [dependencies]
 hamma-core = { workspace = true }
 snafu = { workspace = true }
@@ -29,3 +26,6 @@ webpki-roots = { workspace = true }
 proptest = { workspace = true }
 rcgen = "0.13"
 tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true

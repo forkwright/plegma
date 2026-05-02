@@ -7,9 +7,6 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-[lints]
-workspace = true
-
 [dependencies]
 snafu = { workspace = true }
 serde = { workspace = true }
@@ -20,3 +17,6 @@ rand = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+
+[lints]
+workspace = true
